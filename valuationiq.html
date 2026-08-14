@@ -711,7 +711,7 @@ function latestAnnual(facts, ...concepts) {
     if (!ns || !ns[c]) continue;
     const unitKey = Object.keys(ns[c].units)[0];
     const rows    = ns[c].units[unitKey]
-      .filter(r => r.form === '10-K')
+      .filter(r => r.form === '10-K' && (r.fp === 'FY' || !r.fp))
       .sort((a, b) => new Date(b.end) - new Date(a.end));
     if (rows.length) return rows[0].val;
   }
