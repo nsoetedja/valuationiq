@@ -1274,7 +1274,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function exportToExcel() {
   if (!_facts) { alert('Run an analysis first.'); return; }
 
-  const ticker = document.getElementById('ticker').value.toUpperCase();
+  const ticker = document.getElementById('tickerInput').value.toUpperCase();
   const a      = getAssumptions();
   const wb     = XLSX.utils.book_new();
 
