@@ -549,8 +549,9 @@ async function resolveTickerToCIK(ticker) {
 
 async function fetchFacts(cik) {
   const padded = cik.toString().padStart(10, '0');
-  const url    = `${FACTS_BASE}CIK${padded}.json`;
-  const res    = await fetch(url);
+  const secUrl = `${FACTS_BASE}CIK${padded}.json`;
+  const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(secUrl)}`;
+  const res = await fetch(proxyUrl);
   if (!res.ok) throw new Error('Could not load SEC EDGAR data. The company may not file XBRL.');
   return res.json();
 }
