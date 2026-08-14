@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ValuationIQ — Stock Valuation Analyzer</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #07090f;
+      color: #dce8f5;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: #0d1220;
+      border-bottom: 1px solid #1a2540;
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo { font-size: 18px; font-weight: 800; color: #00d4aa; letter-spacing: -0.5px; }
+    .logo span { color: #4da6ff; }
+    .header-sub { font-size: 12px; color: #4e6585; margin-top: 2px; }
+    .data-badge {
+      font-size: 11px;
+      background: rgba(0,212,170,0.1);
+      border: 1px solid rgba(0,212,170,0.3);
+      color: #00d4aa;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+
+    /* ── SEARCH ── */
+    .search-section {
+      padding: 48px 24px 32px;
+      text-align: center;
+    }
+    .search-title {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+    .search-subtitle { font-size: 15px; color: #4e6585; margin-bottom: 28px; }
+    .search-bar {
+      display: flex;
+      gap: 10px;
+      max-width: 440px;
+      margin: 0 auto;
+    }
+    .ticker-input {
+      flex: 1;
+      background: #0d1220;
+      border: 1.5px solid #1a2540;
+      border-radius: 10px;
+      padding: 13px 18px;
+      color: #dce8f5;
+      font-size: 17px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .ticker-input:focus { border-color: #00d4aa; }
+    .analyze-btn {
+      background: #00d4aa;
+      color: #07090f;
+      border: none;
+      border-radius: 10px;
+      padding: 13px 26px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      white-space: nowrap;
+    }
+    .analyze-btn:hover { background: #00bfa0; }
+    .analyze-btn:active { transform: scale(0.97); }
+    .analyze-btn:disabled { background: #1a2540; color: #4e6585; cursor: not-allowed; }
+
+    /* ── MAIN ── */
+    .main { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
+
+    /* ── LOADING ── */
+    .loading { text-align: center; padding: 80px 24px; color: #4e6585; }
+    .spinner {
+      width: 38px; height: 38px;
+      border: 3px solid #1a2540;
+      border-top-color: #00d4aa;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-step { font-size: 14px; color: #4e6585; margin-top: 8px; }
+
+    /* ── ERROR ── */
+    .error-box {
+      background: rgba(255,70,70,0.08);
+      border: 1px solid rgba(255,70,70,0.3);
+      border-radius: 10px;
+      padding: 20px;
+      color: #ff7070;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    /* ── CARD ── */
+    .card {
+      background: #0d1220;
+      border: 1px solid #1a2540;
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 18px;
+    }
+    .card-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #4e6585;
+      margin-bottom: 18px;
+    }
+
+    /* ── COMPANY HEADER ── */
+    .company-row { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; }
+    .company-name { font-size: 22px; font-weight: 800; }
+    .ticker-tag {
+      display: inline-block;
+      background: rgba(77,166,255,0.12);
+      color: #4da6ff;
+      padding: 3px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .filing-meta { font-size: 12px; color: #4e6585; margin-top: 6px; }
+    .source-tag { font-size: 12px; color: #00d4aa; font-weight: 600; text-align: right; }
+    .source-sub { font-size: 11px; color: #4e6585; }
+
+    /* ── FINANCIAL GRID ── */
+    .fin-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .fin-cell {
+      background: #07090f;
+      border: 1px solid #1a2540;
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .fin-cell-label { font-size: 10px; color: #4e6585; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .fin-cell-value { font-size: 18px; font-weight: 700; color: #dce8f5; }
+    .fin-cell-note { font-size: 10px; color: #2e4060; margin-top: 3px; }
+
+    /* ── HISTORY TABLE ── */
+    .hist-table { width: 100%; border-collapse: collapse; }
+    .hist-table th, .hist-table td {
+      padding: 9px 14px;
+      font-size: 13px;
+      border-bottom: 1px solid #1a2540;
+    }
+    .hist-table th { color: #4e6585; font-weight: 600; text-align: right; }
+    .hist-table th:first-child, .hist-table td:first-child { text-align: left; }
+    .hist-table td { text-align: right; }
+    .pos { color: #00d4aa; }
+    .neg { color: #ff5555; }
+
+    /* ── ASSUMPTIONS ── */
+    .assume-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 16px;
+    }
+    .assume-item label {
+      display: block;
+      font-size: 12px;
+      color: #4e6585;
+      margin-bottom: 7px;
+      font-weight: 600;
+    }
+    .assume-item input {
+      width: 100%;
+      background: #07090f;
+      border: 1.5px solid #1a2540;
+      border-radius: 8px;
+      padding: 10px 13px;
+      color: #dce8f5;
+      font-size: 15px;
+      font-weight: 700;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .assume-item input:focus { border-color: #4da6ff; }
+    .assume-note { font-size: 10px; color: #2e4060; margin-top: 4px; }
+    .recalc-btn {
+      margin-top: 18px;
+      background: transparent;
+      border: 1.5px solid #4da6ff;
+      color: #4da6ff;
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .recalc-btn:hover { background: rgba(77,166,255,0.1); }
+
+    /* ── VALUATION MODELS ── */
+    .val-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(175px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .val-cell {
+      background: #07090f;
+      border: 1px solid #1a2540;
+      border-radius: 10px;
+      padding: 18px;
+      text-align: center;
+    }
+    .val-method { font-size: 10px; color: #4e6585; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+    .val-num { font-size: 26px; font-weight: 800; color: #4da6ff; }
+    .val-desc { font-size: 10px; color: #2e4060; margin-top: 6px; }
+    .blended-row {
+      background: linear-gradient(135deg, #0d1f3a, #091628);
+      border: 1px solid #1f3a6a;
+      border-radius: 12px;
+      padding: 22px;
+      text-align: center;
+    }
+    .blended-label { font-size: 12px; color: #4e6585; margin-bottom: 6px; }
+    .blended-num { font-size: 38px; font-weight: 900; color: #4da6ff; }
+    .blended-sub { font-size: 12px; color: #2e4060; margin-top: 6px; }
+
+    /* ── VERDICT ── */
+    .verdict-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 600px) { .verdict-row { grid-template-columns: 1fr; } }
+
+    .price-cell {
+      background: #07090f;
+      border: 1px solid #1a2540;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .price-cell-label { font-size: 11px; color: #4e6585; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+    .live-price { font-size: 38px; font-weight: 900; color: #dce8f5; }
+    .price-status { font-size: 11px; color: #4e6585; margin-top: 4px; }
+    .manual-section { margin-top: 16px; border-top: 1px solid #1a2540; padding-top: 14px; }
+    .manual-label { font-size: 11px; color: #4e6585; margin-bottom: 7px; }
+    .manual-row { display: flex; gap: 8px; }
+    .manual-input {
+      flex: 1;
+      background: #0d1220;
+      border: 1.5px solid #1a2540;
+      border-radius: 8px;
+      padding: 9px 12px;
+      color: #dce8f5;
+      font-size: 15px;
+      font-weight: 600;
+      outline: none;
+    }
+    .manual-input:focus { border-color: #00d4aa; }
+    .manual-btn {
+      background: #1a2540;
+      border: none;
+      color: #dce8f5;
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .manual-btn:hover { background: #223050; }
+
+    .verdict-cell {
+      border-radius: 12px;
+      padding: 28px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .v-buy  { background: linear-gradient(135deg,#041f12,#062b18); border: 2px solid #00d4aa; }
+    .v-hold { background: linear-gradient(135deg,#1f1a04,#2b2206); border: 2px solid #f5a623; }
+    .v-sell { background: linear-gradient(135deg,#1f0404,#2b0606); border: 2px solid #ff5555; }
+    .v-wait { background: #0d1220; border: 2px solid #1a2540; }
+
+    .verdict-icon { font-size: 32px; margin-bottom: 6px; }
+    .verdict-title { font-size: 20px; font-weight: 900; margin-bottom: 4px; }
+    .v-buy  .verdict-title { color: #00d4aa; }
+    .v-hold .verdict-title { color: #f5a623; }
+    .v-sell .verdict-title { color: #ff5555; }
+    .v-wait .verdict-title { color: #4e6585; }
+
+    .mos-label { font-size: 12px; color: #4e6585; margin-top: 10px; }
+    .mos-value { font-size: 30px; font-weight: 900; margin-top: 2px; }
+    .v-buy  .mos-value { color: #00d4aa; }
+    .v-hold .mos-value { color: #f5a623; }
+    .v-sell .mos-value { color: #ff5555; }
+    .v-wait .mos-value { color: #4e6585; }
+
+    .verdict-note { font-size: 12px; color: #4e6585; margin-top: 10px; line-height: 1.5; }
+
+    /* ── FOOTER ── */
+    .footer {
+      text-align: center;
+      font-size: 11px;
+      color: #2e4060;
+      padding: 24px;
+      border-top: 1px solid #1a2540;
+      line-height: 1.7;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <div>
+    <div class="logo">Valuation<span>IQ</span></div>
+    <div class="header-sub">Fundamental analysis · SEC EDGAR data · Your assumptions</div>
+  </div>
+  <div class="data-badge">📄 Powered by SEC EDGAR · Free</div>
+</div>
+
+<!-- SEARCH -->
+<div class="search-section">
+  <div class="search-title">What is this stock actually worth?</div>
+  <div class="search-subtitle">Enter any US stock ticker — we pull the 10-K and run the numbers.</div>
+  <div class="search-bar">
+    <input type="text" id="tickerInput" class="ticker-input" placeholder="NVDA" value="NVDA" maxlength="10" />
+    <button class="analyze-btn" id="analyzeBtn" onclick="analyzeStock()">Analyze →</button>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+
+  <!-- LOADING -->
+  <div id="loadingSection" class="loading hidden">
+    <div class="spinner"></div>
+    <div id="loadingMsg">Connecting to SEC EDGAR...</div>
+    <div class="loading-step" id="loadingStep">This may take a few seconds</div>
+  </div>
+
+  <!-- ERROR -->
+  <div id="errorSection" class="hidden">
+    <div class="error-box" id="errorMsg">Something went wrong.</div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsSection" class="hidden">
+
+    <!-- Company Info -->
+    <div class="card">
+      <div class="company-row">
+        <div>
+          <div class="company-name" id="companyName">—</div>
+          <div class="filing-meta" id="filingMeta">—</div>
+        </div>
+        <div>
+          <div class="source-tag">SEC EDGAR · 10-K</div>
+          <div class="source-sub">Official government filing data</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Financial Data -->
+    <div class="card">
+      <div class="card-label">Financial Data — pulled directly from the 10-K filing</div>
+      <div class="fin-grid" id="finGrid"></div>
+    </div>
+
+    <!-- Revenue History -->
+    <div class="card">
+      <div class="card-label">Revenue History — last 5 years (annual 10-K)</div>
+      <table class="hist-table" id="histTable"></table>
+    </div>
+
+    <!-- Assumptions -->
+    <div class="card">
+      <div class="card-label">Your Assumptions — this is your edge. Edit anything.</div>
+      <div class="assume-grid">
+        <div class="assume-item">
+          <label>FCF Growth Rate — Years 1–5 (%)</label>
+          <input type="number" id="g1" value="20" min="0" max="200" />
+          <div class="assume-note">Based on recent history. Adjust for your outlook.</div>
+        </div>
+        <div class="assume-item">
+          <label>FCF Growth Rate — Years 6–10 (%)</label>
+          <input type="number" id="g2" value="12" min="0" max="100" />
+          <div class="assume-note">Growth typically slows as a company matures.</div>
+        </div>
+        <div class="assume-item">
+          <label>Discount Rate / WACC (%)</label>
+          <input type="number" id="dr" value="10" min="1" max="30" />
+          <div class="assume-note">Your required return. 8–12% is typical.</div>
+        </div>
+        <div class="assume-item">
+          <label>Terminal Growth Rate (%)</label>
+          <input type="number" id="tg" value="3" min="0" max="10" />
+          <div class="assume-note">Long-run growth rate after year 10. Usually 2–4%.</div>
+        </div>
+        <div class="assume-item">
+          <label>Benchmark P/E Ratio</label>
+          <input type="number" id="pe" value="25" min="5" max="150" />
+          <div class="assume-note">Fair P/E you'd pay for this company.</div>
+        </div>
+        <div class="assume-item">
+          <label>EV / EBITDA Multiple</label>
+          <input type="number" id="evmult" value="20" min="5" max="100" />
+          <div class="assume-note">Industry multiple. Tech: 20–30×, Value: 10–15×.</div>
+        </div>
+      </div>
+      <button class="recalc-btn" onclick="recalculate()">↺ Recalculate with new assumptions</button>
+    </div>
+
+    <!-- Valuation Models -->
+    <div class="card">
+      <div class="card-label">Valuation Models</div>
+      <div class="val-grid" id="valGrid"></div>
+      <div class="blended-row">
+        <div class="blended-label">Blended Fair Value — average of all available models</div>
+        <div class="blended-num" id="blendedNum">$—</div>
+        <div class="blended-sub">This is your estimated intrinsic value per share</div>
+      </div>
+    </div>
+
+    <!-- Verdict -->
+    <div class="card">
+      <div class="card-label">The Verdict</div>
+      <div class="verdict-row">
+        <div class="price-cell">
+          <div class="price-cell-label">Current Stock Price</div>
+          <div class="live-price" id="livePrice">—</div>
+          <div class="price-status" id="priceStatus">Fetching from market...</div>
+          <div class="manual-section">
+            <div class="manual-label">Enter price manually (if auto-fetch fails):</div>
+            <div class="manual-row">
+              <input type="number" class="manual-input" id="manualPrice" placeholder="e.g. 131.50" />
+              <button class="manual-btn" onclick="applyManualPrice()">Set</button>
+            </div>
+          </div>
+        </div>
+        <div class="verdict-cell v-wait" id="verdictCell">
+          <div class="verdict-icon" id="verdictIcon">⏳</div>
+          <div class="verdict-title" id="verdictTitle">Awaiting price</div>
+          <div class="mos-label">Margin of Safety</div>
+          <div class="mos-value" id="mosValue">—</div>
+          <div class="verdict-note" id="verdictNote">Enter the current stock price to see whether this stock is cheap, fairly valued, or overpriced.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end results -->
+</div><!-- end main -->
+
+<div class="footer">
+  ValuationIQ uses publicly available data from the SEC EDGAR XBRL API.<br>
+  This is a research and educational tool — not financial advice. Always do your own due diligence before investing.
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════ */
+const FACTS_BASE    = 'https://data.sec.gov/api/xbrl/companyfacts/';
+
+// Hardcoded ticker → CIK map (avoids CORS issue with www.sec.gov when running locally)
+// CIK is the unique ID the SEC assigns every company. These never change.
+const TICKER_CIK = {
+  'NVDA':1045810,'AAPL':320193,'MSFT':789019,'GOOGL':1652044,'GOOG':1652044,
+  'AMZN':1018724,'META':1326801,'TSLA':1318605,'AVGO':1730168,'JPM':19617,
+  'V':1403161,'UNH':731766,'XOM':34088,'LLY':59478,'JNJ':200406,
+  'MA':1141391,'PG':80424,'COST':909832,'WMT':104169,'HD':354950,
+  'NFLX':1065280,'AMD':2488,'INTC':50863,'CRM':1108524,'ORCL':1341439,
+  'CSCO':858877,'QCOM':804328,'TXN':97476,'ADBE':796343,'IBM':51143,
+  'NOW':1373715,'INTU':896878,'PYPL':1633917,'DIS':1001039,'KO':21344,
+  'PEP':77476,'MCD':63908,'NKE':320187,'SBUX':829224,'BAC':70858,
+  'WFC':72971,'GS':886982,'MS':895421,'C':831001,'BA':12927,
+  'CAT':18230,'DE':315189,'GE':40533,'CVX':93410,'COP':1163165,
+  'SQ':1512673,'COIN':1679788,'PLTR':1321655,'SNAP':1564408,'UBER':1543151,
+  'LYFT':1759509,'ABNB':1559720,'SHOP':1594805,'MU':723254,'AMAT':906709,
+  'KLAC':319201,'LRCX':707549,'F':37996,'GM':1467858,'PFE':78003,
+  'ABBV':1551152,'MRK':310158,'AMGN':318154,'GILD':882095,'REGN':872589,
+  'NET':1477333,'SNOW':1640147,'DDOG':1440023,'CRWD':1517396,'ZS':1713683,
+  'PANW':1327567,'FTNT':1262039,'RTX':101829,'LMT':936468,'UPS':1090727,
+  'FDX':230568,'AMT':1053507,'PLD':1045609,'NEE':753308,'T':732717,
+  'VZ':732712,'CMCSA':1166691,'NTES':1101433,'BIDU':1099590,'SE':1709048,
+  'MELI':1099590,'HON':773840,'MMM':66740,'DHR':313616,'TMO':97745,
+  'ABT':1800,'TMO':97745,'DHR':313616,'HON':773840,'MMM':66740,
+};
+
+/* State */
+let _facts       = null;
+let _shares      = null;
+let _cash        = null;
+let _debt        = null;
+let _eps         = null;
+let _bvps        = null;
+let _fcf         = null;
+let _opInc       = null;
+let _da          = null;
+let _livePrice   = null;
+let _blended     = null;
+
+/* ═══════════════════════════════════════════════
+   SEC EDGAR HELPERS
+═══════════════════════════════════════════════ */
+
+async function resolveTickerToCIK(ticker) {
+  const up = ticker.toUpperCase();
+
+  // 1. Check hardcoded table — instant, no network call needed
+  if (TICKER_CIK[up]) return TICKER_CIK[up];
+
+  // 2. Fallback: search EDGAR full-text search (CORS-friendly endpoint)
+  // This handles any ticker not in our hardcoded list
+  const searchUrl = `https://efts.sec.gov/LATEST/search-index?q=%22${up}%22&forms=10-K`;
+  const res = await fetch(searchUrl);
+  if (!res.ok) throw new Error(`Could not find "${up}" in SEC EDGAR. Try deploying to Netlify for full ticker search.`);
+  const data = await res.json();
+  const hits = data?.hits?.hits;
+  if (!hits || !hits.length) throw new Error(`Ticker "${up}" not found. It may not be a US-listed stock, or try deploying to Netlify for full search.`);
+  const cik = hits[0]?._source?.entity_id;
+  if (!cik) throw new Error(`Could not resolve CIK for "${up}".`);
+  return parseInt(cik);
+}
+
+async function fetchFacts(cik) {
+  const padded = cik.toString().padStart(10, '0');
+  const url    = `${FACTS_BASE}CIK${padded}.json`;
+  const res    = await fetch(url);
+  if (!res.ok) throw new Error('Could not load SEC EDGAR data. The company may not file XBRL.');
+  return res.json();
+}
+
+/**
+ * Returns the most recent annual (10-K / FY) value for one of the given concept names.
+ * Tries each concept in order; returns the first match.
+ */
+function latestAnnual(facts, ...concepts) {
+  for (const c of concepts) {
+    const ns = facts['us-gaap'];
+    if (!ns || !ns[c]) continue;
+    const unitKey = Object.keys(ns[c].units)[0];
+    const rows    = ns[c].units[unitKey]
+      .filter(r => r.form === '10-K')
+      .sort((a, b) => new Date(b.end) - new Date(a.end));
+    if (rows.length) return rows[0].val;
+  }
+  return null;
+}
+
+/**
+ * Returns up to N most-recent annual rows (for history chart).
+ */
+function annualHistory(facts, n, ...concepts) {
+  for (const c of concepts) {
+    const ns = facts['us-gaap'];
+    if (!ns || !ns[c]) continue;
+    const unitKey = Object.keys(ns[c].units)[0];
+    const rows    = ns[c].units[unitKey]
+      .filter(r => r.form === '10-K' && (r.fp === 'FY' || !r.fp))
+      .sort((a, b) => new Date(b.end) - new Date(a.end))
+      .slice(0, n);
+    if (rows.length) return rows;
+  }
+  return [];
+}
+
+function latestFilingDate(facts) {
+  for (const c of ['Revenues','NetIncomeLoss','Assets']) {
+    const ns = facts['us-gaap'];
+    if (!ns || !ns[c]) continue;
+    const unitKey = Object.keys(ns[c].units)[0];
+    const rows    = ns[c].units[unitKey]
+      .filter(r => r.form === '10-K')
+      .sort((a, b) => new Date(b.filed) - new Date(a.filed));
+    if (rows.length) return rows[0].filed;
+  }
+  return null;
+}
+
+/* ═══════════════════════════════════════════════
+   VALUATION MODELS
+═══════════════════════════════════════════════ */
+
+function dcfModel(fcf, g1, g2, dr, tg, cash, debt, shares) {
+  if (!fcf || fcf <= 0 || !shares) return null;
+  const r1 = g1 / 100, r2 = g2 / 100, d = dr / 100, t = tg / 100;
+  if (d <= t) return null; // terminal growth must be less than discount rate
+
+  let cf = fcf, pv = 0;
+  for (let yr = 1; yr <= 10; yr++) {
+    cf *= (1 + (yr <= 5 ? r1 : r2));
+    pv += cf / Math.pow(1 + d, yr);
+  }
+  const tv    = (cf * (1 + t)) / (d - t);
+  const pvTV  = tv / Math.pow(1 + d, 10);
+  const ev    = pv + pvTV;
+  const equity = ev + (cash || 0) - (debt || 0);
+  return Math.max(0, equity / shares);
+}
+
+function grahamModel(eps, bvps) {
+  if (!eps || !bvps || eps <= 0 || bvps <= 0) return null;
+  return Math.sqrt(22.5 * eps * bvps);
+}
+
+function peModel(eps, benchPE) {
+  if (!eps || eps <= 0) return null;
+  return eps * benchPE;
+}
+
+function evEbitdaModel(opInc, da, debt, cash, shares, multiple) {
+  if (!opInc) return null;
+  const ebitda = opInc + (da || 0);
+  if (ebitda <= 0) return null;
+  const ev     = ebitda * multiple;
+  const equity = ev - (debt || 0) + (cash || 0);
+  return Math.max(0, equity / shares);
+}
+
+/* ═══════════════════════════════════════════════
+   FORMAT HELPERS
+═══════════════════════════════════════════════ */
+
+function fmtB(v) {
+  if (v == null) return 'N/A';
+  const a = Math.abs(v);
+  if (a >= 1e12) return (v < 0 ? '-' : '') + '$' + (a / 1e12).toFixed(2) + 'T';
+  if (a >= 1e9)  return (v < 0 ? '-' : '') + '$' + (a / 1e9 ).toFixed(2) + 'B';
+  if (a >= 1e6)  return (v < 0 ? '-' : '') + '$' + (a / 1e6 ).toFixed(2) + 'M';
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString();
+}
+
+function fmtP(v)   { return v == null ? 'N/A' : '$' + v.toFixed(2); }
+function fmtPct(v) { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; }
+function fmtShares(v) {
+  if (v == null) return 'N/A';
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  return v.toLocaleString();
+}
+
+/* ═══════════════════════════════════════════════
+   STOCK PRICE FETCH
+═══════════════════════════════════════════════ */
+
+async function fetchPrice(ticker) {
+  // Use allorigins.win CORS proxy to call Yahoo Finance
+  try {
+    const yUrl  = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(yUrl)}`;
+    const controller = new AbortController();
+    const timeout    = setTimeout(() => controller.abort(), 6000);
+    const res  = await fetch(proxy, { signal: controller.signal });
+    clearTimeout(timeout);
+    const json = await res.json();
+    const data = JSON.parse(json.contents);
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return price || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   RENDER HELPERS
+═══════════════════════════════════════════════ */
+
+function renderFinGrid(revenue, fcf, netIncome, eps, bvps, cash, debt, shares) {
+  const items = [
+    { label: 'Annual Revenue',       value: fmtB(revenue),       note: '10-K top line' },
+    { label: 'Free Cash Flow',       value: fmtB(fcf),           note: 'Op. CF − CapEx' },
+    { label: 'Net Income',           value: fmtB(netIncome),     note: '10-K bottom line' },
+    { label: 'EPS (Diluted)',        value: eps  ? '$' + eps.toFixed(2)  : 'N/A', note: 'per share' },
+    { label: 'Book Value / Share',   value: bvps ? '$' + bvps.toFixed(2) : 'N/A', note: 'equity ÷ shares' },
+    { label: 'Cash & Equivalents',   value: fmtB(cash),          note: 'balance sheet' },
+    { label: 'Long-Term Debt',       value: fmtB(debt),          note: 'balance sheet' },
+    { label: 'Shares Outstanding',   value: fmtShares(shares),   note: 'diluted count' },
+  ];
+  document.getElementById('finGrid').innerHTML = items.map(i => `
+    <div class="fin-cell">
+      <div class="fin-cell-label">${i.label}</div>
+      <div class="fin-cell-value">${i.value}</div>
+      <div class="fin-cell-note">${i.note}</div>
+    </div>`).join('');
+}
+
+function renderHistory(rows) {
+  const tbl = document.getElementById('histTable');
+  if (!rows.length) { tbl.innerHTML = '<tr><td style="color:#4e6585;padding:12px">Not enough history available.</td></tr>'; return; }
+  let html = `<thead><tr><th>Fiscal Year</th><th>Revenue</th><th>YoY Growth</th></tr></thead><tbody>`;
+  rows.forEach((row, i) => {
+    const prev   = rows[i + 1];
+    const growth = prev ? ((row.val - prev.val) / Math.abs(prev.val)) * 100 : null;
+    const cls    = growth == null ? '' : growth >= 0 ? 'pos' : 'neg';
+    const fy     = row.fy || new Date(row.end).getFullYear();
+    html += `<tr><td>FY ${fy}</td><td>${fmtB(row.val)}</td><td class="${cls}">${fmtPct(growth)}</td></tr>`;
+  });
+  tbl.innerHTML = html + '</tbody>';
+}
+
+function renderValuations(dcf, graham, pe, ev) {
+  const models = [
+    { method: 'DCF Model',      val: dcf,    desc: 'Projected FCF discounted to today' },
+    { method: 'Graham Number',  val: graham, desc: 'Benjamin Graham\'s safety formula' },
+    { method: 'P/E Multiple',   val: pe,     desc: 'EPS × your benchmark P/E ratio' },
+    { method: 'EV / EBITDA',    val: ev,     desc: 'Enterprise value via earnings multiple' },
+  ];
+  document.getElementById('valGrid').innerHTML = models.map(m => `
+    <div class="val-cell">
+      <div class="val-method">${m.method}</div>
+      <div class="val-num">${m.val != null ? fmtP(m.val) : 'N/A'}</div>
+      <div class="val-desc">${m.desc}</div>
+    </div>`).join('');
+
+  const valid   = [dcf, graham, pe, ev].filter(v => v != null && v > 0);
+  const blended = valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+  document.getElementById('blendedNum').textContent = blended ? fmtP(blended) : '$—';
+  _blended = blended;
+  return blended;
+}
+
+function renderVerdict(price, blended) {
+  const priceEl   = document.getElementById('livePrice');
+  const statusEl  = document.getElementById('priceStatus');
+  const cell      = document.getElementById('verdictCell');
+  const iconEl    = document.getElementById('verdictIcon');
+  const titleEl   = document.getElementById('verdictTitle');
+  const mosEl     = document.getElementById('mosValue');
+  const noteEl    = document.getElementById('verdictNote');
+
+  if (!price) {
+    priceEl.textContent  = '—';
+    statusEl.textContent = 'Auto-fetch failed — enter price manually below.';
+    cell.className = 'verdict-cell v-wait';
+    iconEl.textContent   = '⏳';
+    titleEl.textContent  = 'Awaiting price';
+    mosEl.textContent    = '—';
+    noteEl.textContent   = 'Enter the current stock price on the left to see the verdict.';
+    return;
+  }
+
+  priceEl.textContent  = fmtP(price);
+  statusEl.textContent = _livePrice ? '✓ Auto-fetched from market data' : '✓ Manually entered';
+
+  if (!blended) return;
+
+  const mos = ((blended - price) / blended) * 100;
+  mosEl.textContent = fmtPct(mos);
+
+  if (mos >= 20) {
+    cell.className   = 'verdict-cell v-buy';
+    iconEl.textContent  = '🟢';
+    titleEl.textContent = 'UNDERVALUED';
+    noteEl.textContent  = `Trading ${mos.toFixed(1)}% below your estimated fair value. Based on your assumptions, this looks like a potential buying opportunity. Always confirm with your own research.`;
+  } else if (mos >= 0) {
+    cell.className   = 'verdict-cell v-hold';
+    iconEl.textContent  = '🟡';
+    titleEl.textContent = 'FAIRLY VALUED';
+    noteEl.textContent  = `Trading within ${Math.abs(mos).toFixed(1)}% of fair value. The stock is roughly fairly priced — consider waiting for a wider margin of safety before buying.`;
+  } else {
+    cell.className   = 'verdict-cell v-sell';
+    iconEl.textContent  = '🔴';
+    titleEl.textContent = 'OVERVALUED';
+    noteEl.textContent  = `Trading ${Math.abs(mos).toFixed(1)}% above your estimated fair value. Based on your assumptions, the stock looks expensive at this price. Be patient.`;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   MAIN: ANALYZE STOCK
+═══════════════════════════════════════════════ */
+
+async function analyzeStock() {
+  const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
+  if (!ticker) return;
+
+  // Reset UI
+  hide('resultsSection');
+  hide('errorSection');
+  show('loadingSection');
+  document.getElementById('analyzeBtn').disabled = true;
+  _facts = _shares = _cash = _debt = _eps = _bvps = _fcf = _opInc = _da = _livePrice = _blended = null;
+
+  try {
+    // 1. Resolve ticker → CIK
+    setLoading('Looking up company in SEC EDGAR…', 'Searching company registry');
+    const cik = await resolveTickerToCIK(ticker);
+
+    // 2. Fetch XBRL company facts
+    setLoading('Downloading 10-K financial data from SEC…', 'This is free government data — no API key needed');
+    const companyJson = await fetchFacts(cik);
+    _facts = companyJson.facts;
+
+    // 3. Extract financials
+    setLoading('Extracting financial figures from XBRL tags…', 'Parsing revenue, cash flow, earnings…');
+
+    const revenue   = latestAnnual(_facts,
+      'Revenues',
+      'RevenueFromContractWithCustomerExcludingAssessedTax',
+      'SalesRevenueNet',
+      'RevenueFromContractWithCustomerIncludingAssessedTax'
+    );
+    const opCF      = latestAnnual(_facts, 'NetCashProvidedByUsedInOperatingActivities');
+    const capex     = latestAnnual(_facts, 'PaymentsToAcquirePropertyPlantAndEquipment');
+    const netIncome = latestAnnual(_facts, 'NetIncomeLoss');
+
+    _fcf    = (opCF != null && capex != null) ? opCF - capex : null;
+    _eps    = latestAnnual(_facts, 'EarningsPerShareDiluted', 'EarningsPerShareBasic');
+    _shares = latestAnnual(_facts, 'CommonStockSharesOutstanding', 'CommonStockSharesIssued');
+    _cash   = latestAnnual(_facts, 'CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsAndShortTermInvestments');
+    _debt   = latestAnnual(_facts, 'LongTermDebt', 'LongTermDebtNoncurrent');
+    _opInc  = latestAnnual(_facts, 'OperatingIncomeLoss');
+    _da     = latestAnnual(_facts, 'DepreciationDepletionAndAmortization', 'DepreciationAndAmortization');
+
+    const equity = latestAnnual(_facts, 'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest');
+    _bvps = (equity != null && _shares) ? equity / _shares : null;
+
+    // Revenue history (last 6 years)
+    const history = annualHistory(_facts, 6,
+      'Revenues',
+      'RevenueFromContractWithCustomerExcludingAssessedTax',
+      'SalesRevenueNet'
+    );
+
+    // Auto-set growth assumptions based on historical CAGR
+    if (history.length >= 3) {
+      const newest = history[0].val, oldest = history[history.length - 1].val;
+      const yrs    = history.length - 1;
+      const cagr   = (Math.pow(newest / oldest, 1 / yrs) - 1) * 100;
+      const g1     = Math.min(Math.max(Math.round(cagr), 0), 100);
+      const g2     = Math.min(Math.max(Math.round(cagr * 0.55), 0), 60);
+      document.getElementById('g1').value = g1;
+      document.getElementById('g2').value = g2;
+    }
+
+    // Company info
+    const filed = latestFilingDate(_facts);
+    document.getElementById('companyName').innerHTML =
+      `${companyJson.entityName} <span class="ticker-tag">${ticker}</span>`;
+    document.getElementById('filingMeta').textContent =
+      filed ? `Most recent 10-K filed: ${new Date(filed).toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'})}  ·  CIK: ${cik}` : `CIK: ${cik}`;
+
+    // Render static sections
+    renderFinGrid(revenue, _fcf, netIncome, _eps, _bvps, _cash, _debt, _shares);
+    renderHistory(history);
+
+    // Run valuations with current assumptions
+    setLoading('Running valuation models…', 'DCF · Graham Number · P/E · EV/EBITDA');
+    const a       = getAssumptions();
+    const dcfVal  = dcfModel(_fcf, a.g1, a.g2, a.dr, a.tg, _cash, _debt, _shares);
+    const gVal    = grahamModel(_eps, _bvps);
+    const peVal   = peModel(_eps, a.pe);
+    const evVal   = evEbitdaModel(_opInc, _da, _debt, _cash, _shares, a.evmult);
+    const blended = renderValuations(dcfVal, gVal, peVal, evVal);
+
+    // Fetch stock price
+    setLoading('Fetching current stock price…', 'Connecting to market data');
+    const price = await fetchPrice(ticker);
+    _livePrice  = price;
+    renderVerdict(price, blended);
+
+    // Show results
+    hide('loadingSection');
+    show('resultsSection');
+
+  } catch (err) {
+    hide('loadingSection');
+    show('errorSection');
+    document.getElementById('errorMsg').textContent = '⚠️  ' + err.message;
+  }
+
+  document.getElementById('analyzeBtn').disabled = false;
+}
+
+/* ═══════════════════════════════════════════════
+   RECALCULATE (when user changes assumptions)
+═══════════════════════════════════════════════ */
+
+function recalculate() {
+  if (!_facts) return;
+  const a       = getAssumptions();
+  const dcfVal  = dcfModel(_fcf, a.g1, a.g2, a.dr, a.tg, _cash, _debt, _shares);
+  const gVal    = grahamModel(_eps, _bvps);
+  const peVal   = peModel(_eps, a.pe);
+  const evVal   = evEbitdaModel(_opInc, _da, _debt, _cash, _shares, a.evmult);
+  const blended = renderValuations(dcfVal, gVal, peVal, evVal);
+  const price   = _livePrice || parseFloat(document.getElementById('manualPrice').value) || null;
+  renderVerdict(price, blended);
+}
+
+/* ═══════════════════════════════════════════════
+   MANUAL PRICE
+═══════════════════════════════════════════════ */
+
+function applyManualPrice() {
+  const v = parseFloat(document.getElementById('manualPrice').value);
+  if (!v || v <= 0) return;
+  _livePrice = null; // mark as manual
+  renderVerdict(v, _blended);
+}
+
+/* ═══════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════ */
+
+function getAssumptions() {
+  return {
+    g1:     parseFloat(document.getElementById('g1').value)     || 10,
+    g2:     parseFloat(document.getElementById('g2').value)     || 7,
+    dr:     parseFloat(document.getElementById('dr').value)     || 10,
+    tg:     parseFloat(document.getElementById('tg').value)     || 3,
+    pe:     parseFloat(document.getElementById('pe').value)     || 25,
+    evmult: parseFloat(document.getElementById('evmult').value) || 20,
+  };
+}
+
+function setLoading(msg, step) {
+  document.getElementById('loadingMsg').textContent  = msg;
+  document.getElementById('loadingStep').textContent = step;
+}
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+/* ═══════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Allow Enter key in ticker box
+  document.getElementById('tickerInput').addEventListener('keypress', e => {
+    if (e.key === 'Enter') analyzeStock();
+  });
+  // Auto-run NVIDIA on load
+  analyzeStock();
+});
+</script>
+</body>
+</html>
