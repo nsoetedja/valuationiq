@@ -484,7 +484,32 @@
 /* ═══════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════ */
-const FACTS_BASE    = 'https://data.sec.gov/api/xbrl/companyfacts/';
+const CONCEPT_BASE  = 'https://data.sec.gov/api/xbrl/companyconcept/';
+const CORS_PROXY    = 'https://corsproxy.io/?url=';
+
+// Only the concepts we actually use — avoids fetching the huge bulk file
+const NEEDED_CONCEPTS = [
+  'Revenues',
+  'RevenueFromContractWithCustomerExcludingAssessedTax',
+  'SalesRevenueNet',
+  'RevenueFromContractWithCustomerIncludingAssessedTax',
+  'NetCashProvidedByUsedInOperatingActivities',
+  'PaymentsToAcquirePropertyPlantAndEquipment',
+  'NetIncomeLoss',
+  'EarningsPerShareDiluted',
+  'EarningsPerShareBasic',
+  'CommonStockSharesOutstanding',
+  'CommonStockSharesIssued',
+  'CashAndCashEquivalentsAtCarryingValue',
+  'CashCashEquivalentsAndShortTermInvestments',
+  'LongTermDebt',
+  'LongTermDebtNoncurrent',
+  'OperatingIncomeLoss',
+  'DepreciationDepletionAndAmortization',
+  'DepreciationAndAmortization',
+  'StockholdersEquity',
+  'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest',
+];
 
 // Hardcoded ticker → CIK map (avoids CORS issue with www.sec.gov when running locally)
 // CIK is the unique ID the SEC assigns every company. These never change.
@@ -547,13 +572,30 @@ async function resolveTickerToCIK(ticker) {
   return parseInt(cik);
 }
 
+async function fetchOneConcept(padded, tag) {
+  try {
+    const url = `${CONCEPT_BASE}CIK${padded}/us-gaap/${tag}.json`;
+    const res = await fetch(CORS_PROXY + encodeURIComponent(url));
+    if (!res.ok) return null;
+    return res.json();
+  } catch (_) { return null; }
+}
+
 async function fetchFacts(cik) {
   const padded = cik.toString().padStart(10, '0');
-  const secUrl = `${FACTS_BASE}CIK${padded}.json`;
-  const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(secUrl)}`;
-  const res = await fetch(proxyUrl);
-  if (!res.ok) throw new Error('Could not load SEC EDGAR data. The company may not file XBRL.');
-  return res.json();
+  // Fetch all needed concepts in parallel — each file is small (KB not MB)
+  const results = await Promise.allSettled(
+    NEEDED_CONCEPTS.map(tag => fetchOneConcept(padded, tag))
+  );
+  const gaap = {};
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value?.units) {
+      gaap[NEEDED_CONCEPTS[i]] = { units: r.value.units };
+    }
+  });
+  if (Object.keys(gaap).length === 0)
+    throw new Error('Could not load SEC EDGAR data. The company may not file XBRL.');
+  return { facts: { 'us-gaap': gaap } };
 }
 
 /**
