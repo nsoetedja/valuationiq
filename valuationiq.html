@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ValuationIQ — Stock Valuation Analyzer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -291,6 +292,20 @@
       transition: background 0.15s;
     }
     .recalc-btn:hover { background: rgba(77,166,255,0.1); }
+    .export-btn {
+      margin-top: 18px;
+      margin-left: 10px;
+      background: transparent;
+      border: 1.5px solid #00d4aa;
+      color: #00d4aa;
+      border-radius: 8px;
+      padding: 10px 22px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .export-btn:hover { background: rgba(0,212,170,0.1); }
 
     /* ── VALUATION MODELS ── */
     .val-grid {
@@ -511,6 +526,7 @@
         </div>
       </div>
       <button class="recalc-btn" onclick="recalculate()">↺ Recalculate with new assumptions</button>
+      <button class="export-btn" onclick="exportToExcel()">↓ Export to Excel</button>
     </div>
 
     <!-- Valuation Models -->
@@ -1251,6 +1267,193 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auto-run NVIDIA on load
   analyzeStock();
 });
+
+/* ═══════════════════════════════════════════════
+   EXCEL EXPORT
+═══════════════════════════════════════════════ */
+function exportToExcel() {
+  if (!_facts) { alert('Run an analysis first.'); return; }
+
+  const ticker = document.getElementById('ticker').value.toUpperCase();
+  const a      = getAssumptions();
+  const wb     = XLSX.utils.book_new();
+
+  /* ── helpers ── */
+  const usd  = v => v != null ? Math.round(v) : '';
+  const pct  = v => v != null ? parseFloat((v * 100).toFixed(2)) : '';
+  const bil  = v => v != null ? parseFloat((v / 1e9).toFixed(2)) : '';
+
+  /* ════════════════════════════════════
+     SHEET 1 — HISTORICAL FINANCIALS
+  ════════════════════════════════════ */
+  const toMap = rows => {
+    const m = {};
+    rows.forEach(r => { m[r.fy] = r.val; });
+    return m;
+  };
+  const revMap = toMap(_histRevenue);
+  const niMap  = toMap(_histNetIncome);
+  const opMap  = toMap(_histOpCF);
+  const cxMap  = toMap(_histCapex);
+  const epsMap = toMap(_histEPS);
+
+  const allFYs = new Set();
+  [_histRevenue, _histNetIncome, _histOpCF, _histCapex, _histEPS]
+    .forEach(rows => rows.forEach(r => allFYs.add(r.fy)));
+  const fys = [...allFYs].sort((a, b) => a - b);
+
+  const histRows = [
+    ['ValuationIQ — Historical Financials', '', '', '', '', '', ''],
+    ['Company', ticker, '', 'Source', 'SEC EDGAR 10-K (XBRL)', '', ''],
+    [],
+    ['Fiscal Year', 'Revenue ($B)', 'Net Income ($B)', 'Operating CF ($B)', 'CapEx ($B)', 'Free Cash Flow ($B)', 'EPS Diluted ($)'],
+  ];
+
+  let prevFCF = null;
+  fys.forEach(fy => {
+    const op  = opMap[fy]  != null ? opMap[fy]  : null;
+    const cx  = cxMap[fy]  != null ? cxMap[fy]  : null;
+    const fcf = (op != null && cx != null) ? op - cx : (op != null ? op : null);
+    histRows.push([
+      'FY ' + fy,
+      bil(revMap[fy]),
+      bil(niMap[fy]),
+      bil(op),
+      bil(cx),
+      bil(fcf),
+      epsMap[fy] != null ? parseFloat(epsMap[fy].toFixed(2)) : '',
+    ]);
+    prevFCF = fcf;
+  });
+
+  const ws1 = XLSX.utils.aoa_to_sheet(histRows);
+  // Column widths
+  ws1['!cols'] = [14, 16, 16, 18, 12, 20, 14].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Historical Financials');
+
+  /* ════════════════════════════════════
+     SHEET 2 — DCF MODEL
+  ════════════════════════════════════ */
+  const baseFCF = _fcf;           // most recent annual FCF (in $)
+  const g1 = a.g1 / 100;
+  const g2 = a.g2 / 100;
+  const dr = a.dr / 100;
+  const tg = a.tg / 100;
+
+  const dcfRows = [
+    ['ValuationIQ — DCF Valuation Model', '', '', '', '', ''],
+    ['Company', ticker, '', 'Analyst', 'ValuationIQ / SEC EDGAR', ''],
+    [],
+    ['─── ASSUMPTIONS ───', '', '', '', '', ''],
+    ['Base FCF (most recent FY)', '$' + bil(baseFCF) + 'B', '', '', '', ''],
+    ['FCF Growth Rate — Years 1–5', a.g1 + '%', '', '', '', ''],
+    ['FCF Growth Rate — Years 6–10', a.g2 + '%', '', '', '', ''],
+    ['Discount Rate (WACC)', a.dr + '%', '', '', '', ''],
+    ['Terminal Growth Rate', a.tg + '%', '', '', '', ''],
+    ['Shares Outstanding', bil(_shares) + 'B', '', '', '', ''],
+    ['Cash & Equivalents', '$' + bil(_cash) + 'B', '', '', '', ''],
+    ['Long-Term Debt', '$' + bil(_debt) + 'B', '', '', '', ''],
+    [],
+    ['─── 10-YEAR FCF PROJECTION ───', '', '', '', '', ''],
+    ['Year', 'Growth Rate', 'Projected FCF ($B)', 'Discount Factor', 'Present Value ($B)', 'Cumulative PV ($B)'],
+  ];
+
+  let cf = baseFCF;
+  let cumPV = 0;
+  const pvs = [];
+  for (let yr = 1; yr <= 10; yr++) {
+    const rate = yr <= 5 ? g1 : g2;
+    cf *= (1 + rate);
+    const discFactor = 1 / Math.pow(1 + dr, yr);
+    const pv = cf * discFactor;
+    cumPV += pv;
+    pvs.push(pv);
+    dcfRows.push([
+      'Year ' + yr,
+      parseFloat(((yr <= 5 ? a.g1 : a.g2)).toFixed(1)) + '%',
+      parseFloat(bil(cf)),
+      parseFloat(discFactor.toFixed(4)),
+      parseFloat(bil(pv)),
+      parseFloat(bil(cumPV)),
+    ]);
+  }
+
+  // Terminal value
+  const tv     = (cf * (1 + tg)) / (dr - tg);
+  const pvTV   = tv / Math.pow(1 + dr, 10);
+  const totalEV = cumPV + pvTV;
+  const equity  = totalEV + (_cash || 0) - (_debt || 0);
+  const perShare = _shares ? Math.max(0, equity / _shares) : null;
+
+  dcfRows.push([]);
+  dcfRows.push(['─── TERMINAL VALUE ───', '', '', '', '', '']);
+  dcfRows.push(['Terminal FCF (Year 11)', parseFloat(bil(cf * (1 + tg))), 'B', '', '', '']);
+  dcfRows.push(['Terminal Value (undiscounted)', parseFloat(bil(tv)), 'B', '', '', '']);
+  dcfRows.push(['PV of Terminal Value', parseFloat(bil(pvTV)), 'B', '', '', '']);
+  dcfRows.push([]);
+  dcfRows.push(['─── VALUATION SUMMARY ───', '', '', '', '', '']);
+  dcfRows.push(['Sum of PV (Years 1–10)', parseFloat(bil(cumPV)), 'B', '', '', '']);
+  dcfRows.push(['PV of Terminal Value', parseFloat(bil(pvTV)), 'B', '', '', '']);
+  dcfRows.push(['Enterprise Value', parseFloat(bil(totalEV)), 'B', '', '', '']);
+  dcfRows.push(['+ Cash', parseFloat(bil(_cash || 0)), 'B', '', '', '']);
+  dcfRows.push(['− Long-Term Debt', parseFloat(bil(_debt || 0)), 'B', '', '', '']);
+  dcfRows.push(['Equity Value', parseFloat(bil(equity)), 'B', '', '', '']);
+  dcfRows.push(['Shares Outstanding', parseFloat(bil(_shares || 0)), 'B', '', '', '']);
+  dcfRows.push(['DCF Fair Value per Share', perShare != null ? '$' + perShare.toFixed(2) : 'N/A', '', '', '', '']);
+  dcfRows.push([]);
+  dcfRows.push(['Terminal Value as % of Total', pvTV && totalEV ? parseFloat((pvTV / totalEV * 100).toFixed(1)) + '%' : '', '← high % (>70%) means model is sensitive to terminal assumptions', '', '', '']);
+
+  const ws2 = XLSX.utils.aoa_to_sheet(dcfRows);
+  ws2['!cols'] = [28, 20, 20, 16, 20, 20].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws2, 'DCF Model');
+
+  /* ════════════════════════════════════
+     SHEET 3 — OTHER VALUATION MODELS
+  ════════════════════════════════════ */
+  const grahamVal = _eps && _bvps && _eps > 0 && _bvps > 0 ? Math.sqrt(22.5 * _eps * _bvps) : null;
+  const peVal     = _eps && _eps > 0 ? _eps * a.pe : null;
+  const ebitda    = _opInc != null ? _opInc + (_da || 0) : null;
+  const evVal     = ebitda ? Math.max(0, (ebitda * a.evmult + (_cash || 0) - (_debt || 0)) / (_shares || 1)) : null;
+
+  const otherRows = [
+    ['ValuationIQ — Supporting Valuation Models', '', '', ''],
+    ['Company', ticker, '', ''],
+    [],
+    ['─── GRAHAM NUMBER ───', '', '', ''],
+    ['Formula', '√(22.5 × EPS × Book Value/Share)', '', ''],
+    ['EPS (Diluted)', _eps != null ? '$' + _eps.toFixed(2) : 'N/A', '', ''],
+    ['Book Value / Share', _bvps != null ? '$' + _bvps.toFixed(2) : 'N/A', '', ''],
+    ['Graham Number', grahamVal != null ? '$' + grahamVal.toFixed(2) : 'N/A', '', ''],
+    [],
+    ['─── P/E MULTIPLE ───', '', '', ''],
+    ['Formula', 'EPS × Benchmark P/E', '', ''],
+    ['EPS (Diluted)', _eps != null ? '$' + _eps.toFixed(2) : 'N/A', '', ''],
+    ['Benchmark P/E', a.pe + '×', '', ''],
+    ['P/E Fair Value', peVal != null ? '$' + peVal.toFixed(2) : 'N/A', '', ''],
+    [],
+    ['─── EV / EBITDA ───', '', '', ''],
+    ['Formula', '(EBITDA × Multiple + Cash − Debt) / Shares', '', ''],
+    ['Operating Income', _opInc != null ? '$' + bil(_opInc) + 'B' : 'N/A', '', ''],
+    ['D&A', _da != null ? '$' + bil(_da) + 'B' : 'N/A', '', ''],
+    ['EBITDA', ebitda != null ? '$' + bil(ebitda) + 'B' : 'N/A', '', ''],
+    ['EV/EBITDA Multiple', a.evmult + '×', '', ''],
+    ['EV/EBITDA Fair Value', evVal != null ? '$' + evVal.toFixed(2) : 'N/A', '', ''],
+    [],
+    ['─── BLENDED SUMMARY ───', '', '', ''],
+    ['DCF Model', perShare != null ? '$' + perShare.toFixed(2) : 'N/A', '', ''],
+    ['Graham Number', grahamVal != null ? '$' + grahamVal.toFixed(2) : 'N/A', '', ''],
+    ['P/E Multiple', peVal != null ? '$' + peVal.toFixed(2) : 'N/A', '', ''],
+    ['EV/EBITDA', evVal != null ? '$' + evVal.toFixed(2) : 'N/A', '', ''],
+  ];
+
+  const ws3 = XLSX.utils.aoa_to_sheet(otherRows);
+  ws3['!cols'] = [30, 20, 20, 20].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws3, 'Other Models');
+
+  /* ── Download ── */
+  const date = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `ValuationIQ_${ticker}_${date}.xlsx`);
+}
 </script>
 </body>
 </html>
