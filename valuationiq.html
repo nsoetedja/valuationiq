@@ -166,8 +166,8 @@
     /* ── HISTORY TABLE ── */
     .hist-table { width: 100%; border-collapse: collapse; }
     .hist-table th, .hist-table td {
-      padding: 9px 14px;
-      font-size: 13px;
+      padding: 9px 10px;
+      font-size: 12.5px;
       border-bottom: 1px solid #1a2540;
     }
     .hist-table th { color: #4e6585; font-weight: 600; text-align: right; }
@@ -391,9 +391,9 @@
       <div class="fin-grid" id="finGrid"></div>
     </div>
 
-    <!-- Revenue History -->
+    <!-- Financial History -->
     <div class="card">
-      <div class="card-label">Revenue History — last 5 years (annual 10-K)</div>
+      <div class="card-label">Financial History — last 5 years (annual 10-K)</div>
       <table class="hist-table" id="histTable"></table>
     </div>
 
@@ -763,17 +763,63 @@ function renderFinGrid(revenue, fcf, netIncome, eps, bvps, cash, debt, shares) {
     </div>`).join('');
 }
 
-function renderHistory(rows) {
+function renderHistory(revenueRows, netIncomeRows, fcfOpRows, fcfCapexRows, epsRows) {
   const tbl = document.getElementById('histTable');
-  if (!rows.length) { tbl.innerHTML = '<tr><td style="color:#4e6585;padding:12px">Not enough history available.</td></tr>'; return; }
-  let html = `<thead><tr><th>Fiscal Year</th><th>Revenue</th><th>YoY Growth</th></tr></thead><tbody>`;
-  rows.forEach((row, i) => {
-    const prev   = rows[i + 1];
-    const growth = prev ? ((row.val - prev.val) / Math.abs(prev.val)) * 100 : null;
-    const cls    = growth == null ? '' : growth >= 0 ? 'pos' : 'neg';
-    const fy     = row.fy || new Date(row.end).getFullYear();
-    html += `<tr><td>FY ${fy}</td><td>${fmtB(row.val)}</td><td class="${cls}">${fmtPct(growth)}</td></tr>`;
+
+  // Collect all fiscal years present across any dataset
+  const allFYs = new Set();
+  [revenueRows, netIncomeRows, fcfOpRows, fcfCapexRows, epsRows].forEach(rows =>
+    rows.forEach(r => allFYs.add(r.fy || new Date(r.end).getFullYear()))
+  );
+
+  if (!allFYs.size) {
+    tbl.innerHTML = '<tr><td style="color:#4e6585;padding:12px">Not enough history available.</td></tr>';
+    return;
+  }
+
+  // Build lookup maps: fy → val
+  const toMap = rows => {
+    const m = {};
+    rows.forEach(r => { m[r.fy || new Date(r.end).getFullYear()] = r.val; });
+    return m;
+  };
+  const revMap = toMap(revenueRows);
+  const niMap  = toMap(netIncomeRows);
+  const opMap  = toMap(fcfOpRows);
+  const cxMap  = toMap(fcfCapexRows);
+  const epsMap = toMap(epsRows);
+
+  const fys = [...allFYs].sort((a, b) => b - a).slice(0, 5);
+
+  let html = `<thead><tr>
+    <th>Fiscal Year</th>
+    <th>Revenue</th>
+    <th>Net Income</th>
+    <th>Free Cash Flow</th>
+    <th>EPS (Diluted)</th>
+  </tr></thead><tbody>`;
+
+  fys.forEach(fy => {
+    const rev = revMap[fy] != null ? fmtB(revMap[fy])   : '—';
+    const ni  = niMap[fy]  != null ? fmtB(niMap[fy])    : '—';
+    const op  = opMap[fy]  != null ? opMap[fy]  : null;
+    const cx  = cxMap[fy]  != null ? cxMap[fy]  : null;
+    const fcf = (op != null && cx != null) ? fmtB(op - cx) : (op != null ? fmtB(op) : '—');
+    const eps = epsMap[fy] != null ? `$${epsMap[fy].toFixed(2)}` : '—';
+
+    const niCls  = niMap[fy] != null  ? (niMap[fy] >= 0  ? 'pos' : 'neg') : '';
+    const fcfVal = (op != null && cx != null) ? op - cx : (op != null ? op : null);
+    const fcfCls = fcfVal != null ? (fcfVal >= 0 ? 'pos' : 'neg') : '';
+
+    html += `<tr>
+      <td>FY ${fy}</td>
+      <td>${rev}</td>
+      <td class="${niCls}">${ni}</td>
+      <td class="${fcfCls}">${fcf}</td>
+      <td>${eps}</td>
+    </tr>`;
   });
+
   tbl.innerHTML = html + '</tbody>';
 }
 
@@ -894,17 +940,22 @@ async function analyzeStock() {
     const equity = latestAnnual(_facts, 'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest');
     _bvps = (equity != null && _shares) ? equity / _shares : null;
 
-    // Revenue history (last 6 years)
-    const history = annualHistory(_facts, 6,
+    // Financial history datasets (last 6 years for CAGR, displayed as 5)
+    const histRevenue = annualHistory(_facts, 6,
       'Revenues',
       'RevenueFromContractWithCustomerExcludingAssessedTax',
-      'SalesRevenueNet'
+      'SalesRevenueNet',
+      'RevenueFromContractWithCustomerIncludingAssessedTax'
     );
+    const histNetIncome = annualHistory(_facts, 6, 'NetIncomeLoss');
+    const histOpCF      = annualHistory(_facts, 6, 'NetCashProvidedByUsedInOperatingActivities');
+    const histCapex     = annualHistory(_facts, 6, 'PaymentsToAcquirePropertyPlantAndEquipment');
+    const histEPS       = annualHistory(_facts, 6, 'EarningsPerShareDiluted', 'EarningsPerShareBasic');
 
-    // Auto-set growth assumptions based on historical CAGR
-    if (history.length >= 3) {
-      const newest = history[0].val, oldest = history[history.length - 1].val;
-      const yrs    = history.length - 1;
+    // Auto-set growth assumptions based on historical revenue CAGR
+    if (histRevenue.length >= 3) {
+      const newest = histRevenue[0].val, oldest = histRevenue[histRevenue.length - 1].val;
+      const yrs    = histRevenue.length - 1;
       const cagr   = (Math.pow(newest / oldest, 1 / yrs) - 1) * 100;
       const g1     = Math.min(Math.max(Math.round(cagr), 0), 100);
       const g2     = Math.min(Math.max(Math.round(cagr * 0.55), 0), 60);
@@ -921,7 +972,7 @@ async function analyzeStock() {
 
     // Render static sections
     renderFinGrid(revenue, _fcf, netIncome, _eps, _bvps, _cash, _debt, _shares);
-    renderHistory(history);
+    renderHistory(histRevenue, histNetIncome, histOpCF, histCapex, histEPS);
 
     // Run valuations with current assumptions
     setLoading('Running valuation models…', 'DCF · Graham Number · P/E · EV/EBITDA');
