@@ -588,14 +588,16 @@ async function fetchFacts(cik) {
     NEEDED_CONCEPTS.map(tag => fetchOneConcept(padded, tag))
   );
   const gaap = {};
+  let entityName = null;
   results.forEach((r, i) => {
     if (r.status === 'fulfilled' && r.value?.units) {
       gaap[NEEDED_CONCEPTS[i]] = { units: r.value.units };
+      if (!entityName && r.value.entityName) entityName = r.value.entityName;
     }
   });
   if (Object.keys(gaap).length === 0)
     throw new Error('Could not load SEC EDGAR data. The company may not file XBRL.');
-  return { facts: { 'us-gaap': gaap } };
+  return { facts: { 'us-gaap': gaap }, entityName };
 }
 
 /**
@@ -623,9 +625,18 @@ function annualHistory(facts, n, ...concepts) {
     const ns = facts['us-gaap'];
     if (!ns || !ns[c]) continue;
     const unitKey = Object.keys(ns[c].units)[0];
-    const rows    = ns[c].units[unitKey]
-      .filter(r => r.form === '10-K' && (r.fp === 'FY' || !r.fp))
-      .sort((a, b) => new Date(b.end) - new Date(a.end))
+    const all = ns[c].units[unitKey]
+      .filter(r => r.form === '10-K' && (r.fp === 'FY' || !r.fp));
+    // Deduplicate by fiscal year — keep the most recently filed entry per year
+    const byYear = {};
+    all.forEach(r => {
+      const fy = r.fy || new Date(r.end).getFullYear();
+      if (!byYear[fy] || new Date(r.filed) > new Date(byYear[fy].filed)) {
+        byYear[fy] = r;
+      }
+    });
+    const rows = Object.values(byYear)
+      .sort((a, b) => (b.fy || new Date(b.end).getFullYear()) - (a.fy || new Date(a.end).getFullYear()))
       .slice(0, n);
     if (rows.length) return rows;
   }
@@ -857,6 +868,7 @@ async function analyzeStock() {
     setLoading('Downloading 10-K financial data from SEC…', 'This is free government data — no API key needed');
     const companyJson = await fetchFacts(cik);
     _facts = companyJson.facts;
+    companyJson.entityName = companyJson.entityName || ticker;
 
     // 3. Extract financials
     setLoading('Extracting financial figures from XBRL tags…', 'Parsing revenue, cash flow, earnings…');
