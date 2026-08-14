@@ -728,16 +728,16 @@ function annualHistory(facts, n, ...concepts) {
     const unitKey = Object.keys(ns[c].units)[0];
     const all = ns[c].units[unitKey]
       .filter(r => r.form === '10-K' && (r.fp === 'FY' || !r.fp));
-    // Deduplicate by fiscal year — keep the most recently filed entry per year
+    // Always use the END DATE year for grouping — r.fy can be inconsistent across concepts
     const byYear = {};
     all.forEach(r => {
-      const fy = r.fy || new Date(r.end).getFullYear();
+      const fy = new Date(r.end).getFullYear();
       if (!byYear[fy] || new Date(r.filed) > new Date(byYear[fy].filed)) {
-        byYear[fy] = r;
+        byYear[fy] = { ...r, fy };   // normalise fy on the row too
       }
     });
     const rows = Object.values(byYear)
-      .sort((a, b) => (b.fy || new Date(b.end).getFullYear()) - (a.fy || new Date(a.end).getFullYear()))
+      .sort((a, b) => b.fy - a.fy)
       .slice(0, n);
     if (rows.length) return rows;
   }
