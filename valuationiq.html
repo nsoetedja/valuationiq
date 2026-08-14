@@ -176,6 +176,81 @@
     .pos { color: #00d4aa; }
     .neg { color: #ff5555; }
 
+    /* ── HISTORY CLICKABLE LABEL ── */
+    .hist-label-clickable {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: color 0.15s;
+    }
+    .hist-label-clickable:hover { color: #00d4aa; }
+    .hist-expand-hint {
+      font-size: 11px;
+      color: #2e4060;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      transition: color 0.15s;
+    }
+    .hist-label-clickable:hover .hist-expand-hint { color: #00d4aa; }
+
+    /* ── HISTORY MODAL ── */
+    .hist-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,8,20,0.88);
+      backdrop-filter: blur(6px);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+    .hist-modal-inner {
+      background: #0d1829;
+      border: 1px solid #1a2540;
+      border-radius: 16px;
+      padding: 32px;
+      width: min(980px, 95vw);
+      max-height: 88vh;
+      overflow-y: auto;
+    }
+    .hist-modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 24px;
+    }
+    .hist-modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #e0e8f0;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .hist-modal-sub {
+      font-size: 12px;
+      color: #4e6585;
+    }
+    .hist-modal-close {
+      background: none;
+      border: 1px solid #1a2540;
+      color: #4e6585;
+      border-radius: 8px;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      font-size: 15px;
+      flex-shrink: 0;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .hist-modal-close:hover { color: #e0e8f0; border-color: #2e4060; }
+    .hist-modal-table th, .hist-modal-table td { font-size: 13px; padding: 10px 14px; }
+    .hist-yoy { font-size: 11px; color: #4e6585; }
+    .hist-yoy.pos { color: #00d4aa; }
+    .hist-yoy.neg { color: #ff5555; }
+
     /* ── ASSUMPTIONS ── */
     .assume-grid {
       display: grid;
@@ -393,7 +468,10 @@
 
     <!-- Financial History -->
     <div class="card">
-      <div class="card-label">Financial History — last 5 years (annual 10-K)</div>
+      <div class="card-label hist-label-clickable" onclick="openHistoryModal()">
+        Financial History — last 5 years (annual 10-K)
+        <span class="hist-expand-hint">View full history ↗</span>
+      </div>
       <table class="hist-table" id="histTable"></table>
     </div>
 
@@ -475,6 +553,22 @@
   </div><!-- end results -->
 </div><!-- end main -->
 
+<!-- Financial History Modal -->
+<div id="histModal" class="hist-modal" style="display:none" onclick="closeHistoryModal(event)">
+  <div class="hist-modal-inner" onclick="event.stopPropagation()">
+    <div class="hist-modal-header">
+      <div>
+        <div class="hist-modal-title" id="histModalTitle">Financial History</div>
+        <div class="hist-modal-sub" id="histModalSub">Annual 10-K filings · SEC EDGAR</div>
+      </div>
+      <button class="hist-modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="hist-table hist-modal-table" id="histModalTable"></table>
+    </div>
+  </div>
+</div>
+
 <div class="footer">
   ValuationIQ uses publicly available data from the SEC EDGAR XBRL API.<br>
   This is a research and educational tool — not financial advice. Always do your own due diligence before investing.
@@ -548,6 +642,13 @@ let _opInc       = null;
 let _da          = null;
 let _livePrice   = null;
 let _blended     = null;
+
+/* History datasets (saved for modal) */
+let _histRevenue   = [];
+let _histNetIncome = [];
+let _histOpCF      = [];
+let _histCapex     = [];
+let _histEPS       = [];
 
 /* ═══════════════════════════════════════════════
    SEC EDGAR HELPERS
@@ -823,6 +924,85 @@ function renderHistory(revenueRows, netIncomeRows, fcfOpRows, fcfCapexRows, epsR
   tbl.innerHTML = html + '</tbody>';
 }
 
+function openHistoryModal() {
+  const modal = document.getElementById('histModal');
+  if (!_histRevenue.length && !_histNetIncome.length) return; // no data yet
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  // Build lookup maps
+  const toMap = rows => {
+    const m = {};
+    rows.forEach(r => { m[r.fy || new Date(r.end).getFullYear()] = r.val; });
+    return m;
+  };
+  const revMap = toMap(_histRevenue);
+  const niMap  = toMap(_histNetIncome);
+  const opMap  = toMap(_histOpCF);
+  const cxMap  = toMap(_histCapex);
+  const epsMap = toMap(_histEPS);
+
+  const allFYs = new Set();
+  [_histRevenue, _histNetIncome, _histOpCF, _histCapex, _histEPS]
+    .forEach(rows => rows.forEach(r => allFYs.add(r.fy || new Date(r.end).getFullYear())));
+
+  const fys = [...allFYs].sort((a, b) => b - a).slice(0, 10);
+
+  // Helper: YoY growth badge
+  const yoyBadge = (curr, prev) => {
+    if (curr == null || prev == null || prev === 0) return '';
+    const pct = ((curr - prev) / Math.abs(prev)) * 100;
+    const cls = pct >= 0 ? 'pos' : 'neg';
+    return `<br><span class="hist-yoy ${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+  };
+
+  let html = `<thead><tr>
+    <th>Fiscal Year</th>
+    <th>Revenue</th>
+    <th>Net Income</th>
+    <th>Free Cash Flow</th>
+    <th>EPS (Diluted)</th>
+  </tr></thead><tbody>`;
+
+  fys.forEach((fy, i) => {
+    const nextFY = fys[i + 1]; // older year (for YoY)
+
+    const revVal = revMap[fy];
+    const niVal  = niMap[fy];
+    const opVal  = opMap[fy]  != null ? opMap[fy]  : null;
+    const cxVal  = cxMap[fy]  != null ? cxMap[fy]  : null;
+    const fcfVal = (opVal != null && cxVal != null) ? opVal - cxVal : (opVal != null ? opVal : null);
+    const epsVal = epsMap[fy];
+
+    const revPrev = nextFY != null ? revMap[nextFY] : null;
+    const niPrev  = nextFY != null ? niMap[nextFY]  : null;
+    const opPrev  = nextFY != null ? opMap[nextFY]  : null;
+    const cxPrev  = nextFY != null ? cxMap[nextFY]  : null;
+    const fcfPrev = (opPrev != null && cxPrev != null) ? opPrev - cxPrev : (opPrev != null ? opPrev : null);
+    const epsPrev = nextFY != null ? epsMap[nextFY] : null;
+
+    const niCls  = niVal  != null ? (niVal  >= 0 ? 'pos' : 'neg') : '';
+    const fcfCls = fcfVal != null ? (fcfVal >= 0 ? 'pos' : 'neg') : '';
+
+    html += `<tr>
+      <td><strong>FY ${fy}</strong></td>
+      <td>${revVal != null ? fmtB(revVal) : '—'}${yoyBadge(revVal, revPrev)}</td>
+      <td class="${niCls}">${niVal != null ? fmtB(niVal) : '—'}${yoyBadge(niVal, niPrev)}</td>
+      <td class="${fcfCls}">${fcfVal != null ? fmtB(fcfVal) : '—'}${yoyBadge(fcfVal, fcfPrev)}</td>
+      <td>${epsVal != null ? '$' + epsVal.toFixed(2) : '—'}${yoyBadge(epsVal, epsPrev)}</td>
+    </tr>`;
+  });
+
+  document.getElementById('histModalTable').innerHTML = html + '</tbody>';
+}
+
+function closeHistoryModal(e) {
+  // Called directly (button) or via backdrop click (event passed)
+  if (e && e.type === 'click' && e.currentTarget !== e.target) return;
+  document.getElementById('histModal').style.display = 'none';
+  document.body.style.overflow = '';
+}
+
 function renderValuations(dcf, graham, pe, ev) {
   const models = [
     { method: 'DCF Model',      val: dcf,    desc: 'Projected FCF discounted to today' },
@@ -940,17 +1120,24 @@ async function analyzeStock() {
     const equity = latestAnnual(_facts, 'StockholdersEquity', 'StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest');
     _bvps = (equity != null && _shares) ? equity / _shares : null;
 
-    // Financial history datasets (last 6 years for CAGR, displayed as 5)
-    const histRevenue = annualHistory(_facts, 6,
+    // Financial history datasets — fetch 11 years so modal can show 10 with YoY growth
+    _histRevenue   = annualHistory(_facts, 11,
       'Revenues',
       'RevenueFromContractWithCustomerExcludingAssessedTax',
       'SalesRevenueNet',
       'RevenueFromContractWithCustomerIncludingAssessedTax'
     );
-    const histNetIncome = annualHistory(_facts, 6, 'NetIncomeLoss');
-    const histOpCF      = annualHistory(_facts, 6, 'NetCashProvidedByUsedInOperatingActivities');
-    const histCapex     = annualHistory(_facts, 6, 'PaymentsToAcquirePropertyPlantAndEquipment');
-    const histEPS       = annualHistory(_facts, 6, 'EarningsPerShareDiluted', 'EarningsPerShareBasic');
+    _histNetIncome = annualHistory(_facts, 11, 'NetIncomeLoss');
+    _histOpCF      = annualHistory(_facts, 11, 'NetCashProvidedByUsedInOperatingActivities');
+    _histCapex     = annualHistory(_facts, 11, 'PaymentsToAcquirePropertyPlantAndEquipment');
+    _histEPS       = annualHistory(_facts, 11, 'EarningsPerShareDiluted', 'EarningsPerShareBasic');
+
+    // Aliases for the summary card (5 years)
+    const histRevenue   = _histRevenue;
+    const histNetIncome = _histNetIncome;
+    const histOpCF      = _histOpCF;
+    const histCapex     = _histCapex;
+    const histEPS       = _histEPS;
 
     // Auto-set growth assumptions based on historical revenue CAGR
     if (histRevenue.length >= 3) {
